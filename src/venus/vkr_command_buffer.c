@@ -1293,10 +1293,56 @@ vkr_context_init_command_pool_dispatch(struct vkr_context *ctx)
    dispatch->dispatch_vkTrimCommandPool = vkr_dispatch_vkTrimCommandPool;
 }
 
+static void
+vkr_dispatch_vkCmdPreprocessGeneratedCommandsEXT(
+   UNUSED struct vn_dispatch_context *dispatch,
+   struct vn_command_vkCmdPreprocessGeneratedCommandsEXT *args)
+{
+   VKR_CMD_CALL(CmdPreprocessGeneratedCommandsEXT, args, args->pGeneratedCommandsInfo, args->stateCommandBuffer);
+}
+
+static void
+vkr_dispatch_vkCmdExecuteGeneratedCommandsEXT(
+   UNUSED struct vn_dispatch_context *dispatch,
+   struct vn_command_vkCmdExecuteGeneratedCommandsEXT *args)
+{
+   VKR_CMD_CALL(CmdExecuteGeneratedCommandsEXT, args, args->isPreprocessed, args->pGeneratedCommandsInfo);
+}
+
+static void
+vkr_dispatch_vkCmdSetCoverageModulationModeNV(
+   UNUSED struct vn_dispatch_context *dispatch,
+   struct vn_command_vkCmdSetCoverageModulationModeNV *args)
+{
+   VKR_CMD_CALL(CmdSetCoverageModulationModeNV, args, args->coverageModulationMode);
+}
+
+static void
+vkr_dispatch_vkCmdSetCoverageModulationTableEnableNV(
+   UNUSED struct vn_dispatch_context *dispatch,
+   struct vn_command_vkCmdSetCoverageModulationTableEnableNV *args)
+{
+   VKR_CMD_CALL(CmdSetCoverageModulationTableEnableNV, args, args->coverageModulationTableEnable);
+}
+
+static void
+vkr_dispatch_vkCmdSetCoverageModulationTableNV(
+   UNUSED struct vn_dispatch_context *dispatch,
+   struct vn_command_vkCmdSetCoverageModulationTableNV *args)
+{
+   VKR_CMD_CALL(CmdSetCoverageModulationTableNV, args, args->coverageModulationTableCount, args->pCoverageModulationTable);
+}
+
 void
 vkr_context_init_command_buffer_dispatch(struct vkr_context *ctx)
 {
    struct vn_dispatch_context *dispatch = &ctx->dispatch;
+
+   dispatch->dispatch_vkCmdPreprocessGeneratedCommandsEXT = vkr_dispatch_vkCmdPreprocessGeneratedCommandsEXT;
+   dispatch->dispatch_vkCmdExecuteGeneratedCommandsEXT = vkr_dispatch_vkCmdExecuteGeneratedCommandsEXT;
+   dispatch->dispatch_vkCmdSetCoverageModulationModeNV = vkr_dispatch_vkCmdSetCoverageModulationModeNV;
+   dispatch->dispatch_vkCmdSetCoverageModulationTableEnableNV = vkr_dispatch_vkCmdSetCoverageModulationTableEnableNV;
+   dispatch->dispatch_vkCmdSetCoverageModulationTableNV = vkr_dispatch_vkCmdSetCoverageModulationTableNV;
 
    dispatch->dispatch_vkAllocateCommandBuffers = vkr_dispatch_vkAllocateCommandBuffers;
    dispatch->dispatch_vkFreeCommandBuffers = vkr_dispatch_vkFreeCommandBuffers;

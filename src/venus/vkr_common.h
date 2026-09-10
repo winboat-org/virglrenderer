@@ -158,6 +158,8 @@ struct vkr_object {
       VkDescriptorUpdateTemplate descriptor_update_template;
 
       VkAccelerationStructureKHR acceleration_structure;
+      VkIndirectCommandsLayoutEXT indirect_commands_layout;
+      VkIndirectExecutionSetEXT indirect_execution_set;
    } handle;
 
    struct list_head track_head;

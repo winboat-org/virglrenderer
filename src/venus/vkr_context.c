@@ -23,6 +23,7 @@
 #include "vkr_descriptor_heap.h"
 #include "vkr_descriptor_set.h"
 #include "vkr_device.h"
+#include "vkr_device_generated_commands.h"
 #include "vkr_device_memory.h"
 #include "vkr_host_copy.h"
 #include "vkr_image.h"
@@ -125,6 +126,7 @@ vkr_context_init_dispatch(struct vkr_context *ctx)
    vkr_context_init_host_copy_dispatch(ctx);
 
    vkr_context_init_acceleration_structure_dispatch(ctx);
+   vkr_context_init_device_generated_commands_dispatch(ctx);
 }
 
 static inline void

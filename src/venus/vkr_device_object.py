@@ -463,7 +463,7 @@ def file_header_generator(json_file):
     include_filenames = []
     for json_obj in json_file['objects']:
         name = 'vn_protocol_renderer_{}.h'.format(
-            json_obj['vkr_type'])
+            json_obj.get('protocol_group', json_obj['vkr_type']))
         include_filenames.append(name)
     protocol_includes = '#include "' + '"\n#include "'.join(include_filenames) + '"'
 

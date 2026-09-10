@@ -161,6 +161,7 @@ static const struct vn_info_extension_table vkr_extension_table = {
    .EXT_depth_clip_enable = true,
    .EXT_depth_range_unrestricted = true,
    .EXT_descriptor_heap = true,
+   .EXT_device_generated_commands = true,
    .EXT_dynamic_rendering_unused_attachments = true,
    .EXT_extended_dynamic_state3 = true,
    .EXT_external_memory_acquire_unmodified = true,
@@ -222,6 +223,7 @@ static const struct vn_info_extension_table vkr_extension_table = {
    .GOOGLE_user_type = true,
    .IMG_filter_cubic = true,
    .NV_compute_shader_derivatives = true,
+   .NV_framebuffer_mixed_samples = true,
    .VALVE_mutable_descriptor_type = true,
 };
 

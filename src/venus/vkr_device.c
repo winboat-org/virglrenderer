@@ -292,6 +292,12 @@ vkr_device_object_destroy(struct vkr_context *ctx,
          vk->DestroyDescriptorUpdateTemplate(
             device, obj->handle.descriptor_update_template, NULL);
          break;
+      case VK_OBJECT_TYPE_INDIRECT_COMMANDS_LAYOUT_EXT:
+         vk->DestroyIndirectCommandsLayoutEXT(device, obj->handle.indirect_commands_layout, NULL);
+         break;
+      case VK_OBJECT_TYPE_INDIRECT_EXECUTION_SET_EXT:
+         vk->DestroyIndirectExecutionSetEXT(device, obj->handle.indirect_execution_set, NULL);
+         break;
       case VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR:
          vk->DestroyAccelerationStructureKHR(device, obj->handle.acceleration_structure,
                                              NULL);

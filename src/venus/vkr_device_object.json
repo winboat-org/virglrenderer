@@ -335,5 +335,34 @@
                 "destroy_obj": "accelerationStructure"
             }
         ]
+    },
+    {
+        "filename": "vkr_device_generated_commands_gen.h",
+        "objects": [
+            {
+                "vkr_type": "indirect_commands_layout",
+                "vk_type": "VkIndirectCommandsLayoutEXT",
+                "vk_enum": "VK_OBJECT_TYPE_INDIRECT_COMMANDS_LAYOUT_EXT",
+                "generator": "simple-object",
+                "create_cmd": "vkCreateIndirectCommandsLayoutEXT",
+                "create_info": "pCreateInfo",
+                "create_obj": "pIndirectCommandsLayout",
+                "destroy_cmd": "vkDestroyIndirectCommandsLayoutEXT",
+                "destroy_obj": "indirectCommandsLayout",
+                "protocol_group": "device_generated_commands"
+            },
+            {
+                "vkr_type": "indirect_execution_set",
+                "vk_type": "VkIndirectExecutionSetEXT",
+                "vk_enum": "VK_OBJECT_TYPE_INDIRECT_EXECUTION_SET_EXT",
+                "generator": "simple-object",
+                "create_cmd": "vkCreateIndirectExecutionSetEXT",
+                "create_info": "pCreateInfo",
+                "create_obj": "pIndirectExecutionSet",
+                "destroy_cmd": "vkDestroyIndirectExecutionSetEXT",
+                "destroy_obj": "indirectExecutionSet",
+                "protocol_group": "device_generated_commands"
+            }
+        ]
     }
 ]
