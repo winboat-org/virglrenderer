@@ -28,13 +28,13 @@ vkr_device_alloc_queue_sync(struct vkr_device *dev,
       if (!sync)
          return NULL;
 
-      const VkExportFenceCreateInfo export_info = {
-         .sType = VK_STRUCTURE_TYPE_EXPORT_FENCE_CREATE_INFO,
-         .handleTypes = VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT,
-      };
-      const struct VkFenceCreateInfo create_info = {
+      /* These internal queue markers are waited here and never exported.  In
+       * particular, do not request SYNC_FD: an exportable fence can take a much
+       * slower host-driver completion path even when no fd is ever obtained.
+       * Guest-requested exportable VkFence objects use their separate path.
+       */
+      const VkFenceCreateInfo create_info = {
          .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-         .pNext = dev->physical_device->KHR_external_fence_fd ? &export_info : NULL,
       };
       VkResult result =
          vk->CreateFence(dev->base.handle.device, &create_info, NULL, &sync->fence);
@@ -48,7 +48,14 @@ vkr_device_alloc_queue_sync(struct vkr_device *dev,
       list_del(&sync->head);
       mtx_unlock(&dev->free_sync_mutex);
 
-      vk->ResetFences(dev->base.handle.device, 1, &sync->fence);
+      VkResult result = vk->ResetFences(dev->base.handle.device, 1, &sync->fence);
+      if (result != VK_SUCCESS) {
+         vkr_log("failed to reset queue marker (vk ret %d) for fence_id %" PRIu64,
+                 result, fence_id);
+         vk->DestroyFence(dev->base.handle.device, sync->fence, NULL);
+         free(sync);
+         return NULL;
+      }
    }
 
    sync->device_lost = false;
@@ -68,11 +75,25 @@ vkr_device_free_queue_sync(struct vkr_device *dev, struct vkr_queue_sync *sync)
 }
 
 static inline void
-vkr_queue_sync_retire(struct vkr_queue *queue, struct vkr_queue_sync *sync)
+vkr_queue_sync_retire(struct vkr_queue *queue, struct vkr_queue_sync *sync, VkResult result)
 {
    TRACE_FUNC();
-   queue->context->retire_fence(queue->context->ctx_id, sync->ring_idx, sync->fence_id);
-   vkr_device_free_queue_sync(queue->device, sync);
+   /* This callback carries success only. Device loss or teardown is not GPU
+    * completion; leave the guest fence pending until its error/timeout path.
+    * A separate error-bearing transport callback remains necessary for loss.
+    */
+   if (result == VK_SUCCESS) {
+      queue->context->retire_fence(queue->context->ctx_id, sync->ring_idx, sync->fence_id);
+      vkr_device_free_queue_sync(queue->device, sync);
+   } else {
+      vkr_log("queue marker not retired (vk ret %d) for fence_id %" PRIu64,
+              result, sync->fence_id);
+      /* OOM from WaitForFences, for example, is not completion or permission
+       * to reset a possibly pending fence on the next submission. */
+      mtx_lock(&queue->device->free_sync_mutex);
+      list_addtail(&sync->head, &queue->device->failed_syncs);
+      mtx_unlock(&queue->device->free_sync_mutex);
+   }
 }
 
 bool
@@ -122,8 +143,14 @@ vkr_queue_sync_thread_fini(struct vkr_queue *queue)
 
    thrd_join(queue->sync_thread.thread, NULL);
 
-   list_for_each_entry_safe (struct vkr_queue_sync, sync, &queue->sync_thread.syncs, head)
-      vkr_queue_sync_retire(queue, sync);
+   list_for_each_entry_safe (struct vkr_queue_sync, sync, &queue->sync_thread.syncs, head) {
+      list_del(&sync->head);
+      /* Do not infer success from the teardown wait: it may have failed. */
+      VkResult result = sync->device_lost ? VK_ERROR_DEVICE_LOST :
+         queue->device->proc_table.GetFenceStatus(queue->device->base.handle.device,
+                                                 sync->fence);
+      vkr_queue_sync_retire(queue, sync, result);
+   }
 
    mtx_destroy(&queue->sync_thread.mutex);
    cnd_destroy(&queue->sync_thread.cond);
@@ -189,7 +216,7 @@ vkr_queue_thread(void *arg)
 
       list_del(&sync->head);
 
-      vkr_queue_sync_retire(queue, sync);
+      vkr_queue_sync_retire(queue, sync, result);
    }
    mtx_unlock(&queue->sync_thread.mutex);
 

@@ -205,6 +205,7 @@ vkr_dispatch_vkCreateDevice(struct vn_dispatch_context *dispatch,
 
    mtx_init(&dev->free_sync_mutex, mtx_plain);
    list_inithead(&dev->free_syncs);
+   list_inithead(&dev->failed_syncs);
 
    mtx_init(&dev->object_mutex, mtx_plain);
    list_inithead(&dev->objects);
@@ -350,6 +351,12 @@ vkr_device_destroy(struct vkr_context *ctx, struct vkr_device *dev, bool destroy
       vkr_queue_destroy(ctx, queue);
 
    list_for_each_entry_safe (struct vkr_queue_sync, sync, &dev->free_syncs, head) {
+      vk->DestroyFence(dev->base.handle.device, sync->fence, NULL);
+      free(sync);
+   }
+   /* Preserve failed markers until device teardown, alongside device-owned
+    * objects. A wait error alone did not establish that they could be reset. */
+   list_for_each_entry_safe (struct vkr_queue_sync, sync, &dev->failed_syncs, head) {
       vk->DestroyFence(dev->base.handle.device, sync->fence, NULL);
       free(sync);
    }

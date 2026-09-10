@@ -23,6 +23,8 @@ struct vkr_device {
 
    mtx_t free_sync_mutex;
    struct list_head free_syncs;
+   /* Failed completion observations must never feed the reusable fence pool. */
+   struct list_head failed_syncs;
 
    mtx_t object_mutex;
    struct list_head objects;
