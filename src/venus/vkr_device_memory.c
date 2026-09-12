@@ -13,6 +13,117 @@
 #include "vkr_metal_helpers.h"
 #include "vkr_physical_device.h"
 
+/* This budget is shared by all contexts in this process.  A render server must
+ * use thread workers for the budget to cover the whole VM; process workers each
+ * have an independent copy.
+ */
+static atomic_uint_fast64_t vkr_device_memory_budget_used;
+static uint64_t vkr_device_memory_budget_limit;
+
+void
+vkr_device_memory_budget_init(void)
+{
+   const char *value = getenv("VKR_DEVICE_MEMORY_LIMIT_BYTES");
+   uint64_t limit = 0;
+
+   if (value && value[0]) {
+      char *end = NULL;
+      errno = 0;
+      const unsigned long long parsed = strtoull(value, &end, 10);
+      if (value[0] != '-' && !errno && end && !end[0]) {
+         limit = parsed;
+      } else {
+         vkr_log("ignoring invalid VKR_DEVICE_MEMORY_LIMIT_BYTES=%s", value);
+      }
+   }
+
+   atomic_store_explicit(&vkr_device_memory_budget_used, 0, memory_order_relaxed);
+   vkr_device_memory_budget_limit = limit;
+   if (limit)
+      vkr_log("device-local memory limit is %" PRIu64 " bytes", limit);
+}
+
+void
+vkr_device_memory_budget_fini(void)
+{
+   const uint64_t used =
+      atomic_load_explicit(&vkr_device_memory_budget_used, memory_order_relaxed);
+   if (used)
+      vkr_log("device-local memory accounting leaked %" PRIu64 " bytes", used);
+
+   atomic_store_explicit(&vkr_device_memory_budget_used, 0, memory_order_relaxed);
+   vkr_device_memory_budget_limit = 0;
+}
+
+void
+vkr_device_memory_budget_clamp_properties(
+   VkPhysicalDeviceMemoryProperties *properties,
+   VkPhysicalDeviceMemoryBudgetPropertiesEXT *budget_properties)
+{
+   uint64_t remaining = vkr_device_memory_budget_limit;
+   if (!remaining)
+      return;
+
+   for (uint32_t i = 0; i < properties->memoryHeapCount; i++) {
+      VkMemoryHeap *heap = &properties->memoryHeaps[i];
+      if (!(heap->flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT))
+         continue;
+
+      heap->size = MIN2(heap->size, remaining);
+      remaining -= heap->size;
+      if (budget_properties) {
+         budget_properties->heapBudget[i] =
+            MIN2(budget_properties->heapBudget[i], heap->size);
+         budget_properties->heapUsage[i] =
+            MIN2(budget_properties->heapUsage[i], heap->size);
+      }
+   }
+}
+
+static bool
+vkr_device_memory_budget_reserve(uint64_t size)
+{
+   const uint64_t limit = vkr_device_memory_budget_limit;
+   if (!limit || !size)
+      return true;
+
+   uint_fast64_t used =
+      atomic_load_explicit(&vkr_device_memory_budget_used, memory_order_relaxed);
+   do {
+      if (size > limit || used > limit - size) {
+         vkr_log("device-local memory limit exceeded: requested=%" PRIu64
+                 " used=%" PRIuFAST64 " limit=%" PRIu64,
+                 size, used, limit);
+         return false;
+      }
+   } while (!atomic_compare_exchange_weak_explicit(&vkr_device_memory_budget_used, &used,
+                                                   used + size, memory_order_relaxed,
+                                                   memory_order_relaxed));
+
+   return true;
+}
+
+static void
+vkr_device_memory_budget_release(uint64_t size)
+{
+   if (!size)
+      return;
+
+   uint_fast64_t used =
+      atomic_load_explicit(&vkr_device_memory_budget_used, memory_order_relaxed);
+   do {
+      if (used < size) {
+         vkr_log("invalid device-local memory accounting: release=%" PRIu64
+                 " used=%" PRIuFAST64,
+                 size, used);
+         atomic_store_explicit(&vkr_device_memory_budget_used, 0, memory_order_relaxed);
+         return;
+      }
+   } while (!atomic_compare_exchange_weak_explicit(&vkr_device_memory_budget_used, &used,
+                                                   used - size, memory_order_relaxed,
+                                                   memory_order_relaxed));
+}
+
 static bool
 vkr_get_fd_info_from_resource_info(struct vkr_context *ctx,
                                    const VkImportMemoryResourceInfoMESA *res_info,
@@ -122,7 +233,7 @@ fail:
    return VK_ERROR_OUT_OF_DEVICE_MEMORY;
 }
 
-#else  /* HAVE_LINUX_UDMABUF_H && HAVE_MEMFD_CREATE */
+#else /* HAVE_LINUX_UDMABUF_H && HAVE_MEMFD_CREATE */
 
 static inline VkResult
 vkr_udmabuf_get_fd_info_from_allocation_info(
@@ -403,10 +514,28 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
          valid_fd_types |= 1 << VIRGL_RESOURCE_FD_DMABUF;
    }
 
-   struct vkr_device_memory *mem = vkr_device_memory_create_and_add(ctx, args);
-   if (!mem) {
+   const uint64_t budget_charge = property_flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+                                     ? alloc_info->allocationSize
+                                     : 0;
+   if (!vkr_device_memory_budget_reserve(budget_charge)) {
       if (local_import_info.fd >= 0)
          close(local_import_info.fd);
+      if (udmabuf_fd >= 0)
+         close(udmabuf_fd);
+      if (gbm_bo)
+         vkr_gbm_bo_destroy(gbm_bo);
+      vkr_mtl_shm_free(mtl_shm);
+      args->ret = VK_ERROR_OUT_OF_DEVICE_MEMORY;
+      return;
+   }
+
+   struct vkr_device_memory *mem = vkr_device_memory_create_and_add(ctx, args);
+   if (!mem) {
+      vkr_device_memory_budget_release(budget_charge);
+      if (local_import_info.fd >= 0)
+         close(local_import_info.fd);
+      if (udmabuf_fd >= 0)
+         close(udmabuf_fd);
       if (gbm_bo)
          vkr_gbm_bo_destroy(gbm_bo);
       vkr_mtl_shm_free(mtl_shm);
@@ -422,6 +551,7 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
    mem->mtl_shm = mtl_shm;
    mem->allocation_size = alloc_info->allocationSize;
    mem->memory_type_index = mem_type_index;
+   mem->budget_charge = budget_charge;
 }
 
 static void
@@ -433,8 +563,15 @@ vkr_dispatch_vkFreeMemory(struct vn_dispatch_context *dispatch,
    if (!mem)
       return;
 
+   /* Keep the charge until the host vkFreeMemory has completed.  The generated
+    * destroy helper frees the vkr_device_memory wrapper, so retain the value
+    * locally and prevent the backing cleanup from releasing it early.
+    */
+   const uint64_t budget_charge = mem->budget_charge;
+   mem->budget_charge = 0;
    vkr_device_memory_release(mem);
    vkr_device_memory_destroy_and_remove(dispatch->data, args);
+   vkr_device_memory_budget_release(budget_charge);
 }
 
 static void
@@ -533,6 +670,8 @@ vkr_device_memory_release(struct vkr_device_memory *mem)
       vkr_gbm_bo_destroy(mem->gbm_bo);
    if (mem->udmabuf_fd >= 0)
       close(mem->udmabuf_fd);
+   vkr_device_memory_budget_release(mem->budget_charge);
+   mem->budget_charge = 0;
 }
 
 bool

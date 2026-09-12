@@ -9,6 +9,7 @@
 
 #include "vkr_context.h"
 #include "vkr_device.h"
+#include "vkr_device_memory.h"
 #include "vkr_instance.h"
 
 #ifdef HAVE_LINUX_UDMABUF_H
@@ -172,6 +173,7 @@ vkr_physical_device_init_memory_properties(struct vkr_physical_device *physical_
 
    VkPhysicalDevice handle = physical_dev->base.handle.physical_device;
    vk->GetPhysicalDeviceMemoryProperties(handle, &physical_dev->memory_properties);
+   vkr_device_memory_budget_clamp_properties(&physical_dev->memory_properties, NULL);
 
    /* XXX When a VkMemoryType has VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, we
     * assume any VkDeviceMemory with the memory type can be made external and
@@ -725,6 +727,11 @@ vkr_dispatch_vkGetPhysicalDeviceMemoryProperties2(
       vn_replace_vkGetPhysicalDeviceMemoryProperties2_args_handle(args);
       vk->GetPhysicalDeviceMemoryProperties2(args->physicalDevice,
                                              args->pMemoryProperties);
+      VkPhysicalDeviceMemoryBudgetPropertiesEXT *budget_properties =
+         vkr_find_struct(args->pMemoryProperties->pNext,
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT);
+      vkr_device_memory_budget_clamp_properties(
+         &args->pMemoryProperties->memoryProperties, budget_properties);
    }
 }
 

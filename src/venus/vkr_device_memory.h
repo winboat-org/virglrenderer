@@ -32,6 +32,7 @@ struct vkr_device_memory {
 
    uint64_t allocation_size;
    uint32_t memory_type_index;
+   uint64_t budget_charge;
 
    bool exported;
 };
@@ -39,6 +40,17 @@ VKR_DEFINE_OBJECT_CAST(device_memory, VK_OBJECT_TYPE_DEVICE_MEMORY, VkDeviceMemo
 
 void
 vkr_context_init_device_memory_dispatch(struct vkr_context *ctx);
+
+void
+vkr_device_memory_budget_init(void);
+
+void
+vkr_device_memory_budget_fini(void);
+
+void
+vkr_device_memory_budget_clamp_properties(
+   VkPhysicalDeviceMemoryProperties *properties,
+   VkPhysicalDeviceMemoryBudgetPropertiesEXT *budget_properties);
 
 void
 vkr_device_memory_release(struct vkr_device_memory *mem);

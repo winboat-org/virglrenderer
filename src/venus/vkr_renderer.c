@@ -10,6 +10,7 @@
 #include "venus_hw.h"
 
 #include "vkr_context.h"
+#include "vkr_device_memory.h"
 
 struct vkr_renderer_state {
    const struct vkr_renderer_callbacks *cbs;
@@ -72,6 +73,7 @@ vkr_renderer_init(uint32_t flags, const struct vkr_renderer_callbacks *cbs)
 
    if (cbs->debug_logger)
       virgl_log_set_handler(cbs->debug_logger, NULL, NULL);
+   vkr_device_memory_budget_init();
 
    vkr_state.cbs = cbs;
    list_inithead(&vkr_state.contexts);
@@ -86,6 +88,8 @@ vkr_renderer_fini(void)
       vkr_context_destroy(ctx);
 
    list_inithead(&vkr_state.contexts);
+
+   vkr_device_memory_budget_fini();
 
    vkr_state.cbs = NULL;
 }
