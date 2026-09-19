@@ -16,6 +16,8 @@
       struct vkr_command_buffer *_cmd =                                                  \
          vkr_command_buffer_from_handle(args->commandBuffer);                            \
       struct vn_device_proc_table *_vk = &_cmd->device->proc_table;                      \
+      VKR_FAULT_TRACE(_cmd->context, "cmd_op cmd=%" PRIu64 " op=vk" #cmd_name,          \
+                      _cmd->base.id);                                                   \
                                                                                          \
       vn_replace_vk##cmd_name##_args_handle(args);                                       \
       _vk->cmd_name(args->commandBuffer, ##__VA_ARGS__);                                 \
@@ -86,6 +88,12 @@ vkr_dispatch_vkAllocateCommandBuffers(struct vn_dispatch_context *dispatch,
    if (vkr_command_buffer_create_array(ctx, args, &arr) != VK_SUCCESS)
       return;
 
+   for (uint32_t i = 0; i < arr.count; i++) {
+      struct vkr_command_buffer *cmd = arr.objects[i];
+      cmd->context = ctx;
+      VKR_FAULT_TRACE(ctx, "allocate_cmd cmd=%" PRIu64 " pool=%" PRIu64 " level=%u",
+                      cmd->base.id, pool->base.id, args->pAllocateInfo->level);
+   }
    vkr_command_buffer_add_array(ctx, dev, pool, &arr);
 }
 
@@ -113,6 +121,7 @@ vkr_dispatch_vkResetCommandBuffer(UNUSED struct vn_dispatch_context *dispatch,
    struct vkr_command_buffer *cmd = vkr_command_buffer_from_handle(args->commandBuffer);
    struct vn_device_proc_table *vk = &cmd->device->proc_table;
 
+   VKR_FAULT_TRACE(dispatch->data, "reset_cmd cmd=%" PRIu64, cmd->base.id);
    vn_replace_vkResetCommandBuffer_args_handle(args);
    args->ret = vk->ResetCommandBuffer(args->commandBuffer, args->flags);
 }
@@ -125,6 +134,7 @@ vkr_dispatch_vkBeginCommandBuffer(UNUSED struct vn_dispatch_context *dispatch,
    struct vkr_command_buffer *cmd = vkr_command_buffer_from_handle(args->commandBuffer);
    struct vn_device_proc_table *vk = &cmd->device->proc_table;
 
+   VKR_FAULT_TRACE(dispatch->data, "begin_cmd cmd=%" PRIu64, cmd->base.id);
    vn_replace_vkBeginCommandBuffer_args_handle(args);
    args->ret = vk->BeginCommandBuffer(args->commandBuffer, args->pBeginInfo);
 }
@@ -137,6 +147,7 @@ vkr_dispatch_vkEndCommandBuffer(UNUSED struct vn_dispatch_context *dispatch,
    struct vkr_command_buffer *cmd = vkr_command_buffer_from_handle(args->commandBuffer);
    struct vn_device_proc_table *vk = &cmd->device->proc_table;
 
+   VKR_FAULT_TRACE(dispatch->data, "end_cmd cmd=%" PRIu64, cmd->base.id);
    vn_replace_vkEndCommandBuffer_args_handle(args);
    args->ret = vk->EndCommandBuffer(args->commandBuffer);
 }
@@ -145,6 +156,9 @@ static void
 vkr_dispatch_vkCmdBindPipeline(UNUSED struct vn_dispatch_context *dispatch,
                                struct vn_command_vkCmdBindPipeline *args)
 {
+   VKR_FAULT_TRACE(dispatch->data, "bind_pipeline cmd=%" PRIu64 " point=%u pipeline=%" PRIu64,
+                   VKR_FAULT_ID(args->commandBuffer), args->pipelineBindPoint,
+                   VKR_FAULT_ID(args->pipeline));
    VKR_CMD_CALL(CmdBindPipeline, args, args->pipelineBindPoint, args->pipeline);
 }
 
@@ -289,6 +303,15 @@ static void
 vkr_dispatch_vkCmdCopyBuffer(UNUSED struct vn_dispatch_context *dispatch,
                              struct vn_command_vkCmdCopyBuffer *args)
 {
+   if (VKR_DEBUG(FAULT))
+      for (uint32_t i = 0; i < args->regionCount; i++) {
+         const VkBufferCopy *r = &args->pRegions[i];
+         VKR_FAULT_TRACE(dispatch->data, "copy_buffer cmd=%" PRIu64 " src=%" PRIu64
+                         " dst=%" PRIu64 " index=%u src_offset=%" PRIu64
+                         " dst_offset=%" PRIu64 " size=%" PRIu64,
+                         VKR_FAULT_ID(args->commandBuffer), VKR_FAULT_ID(args->srcBuffer),
+                         VKR_FAULT_ID(args->dstBuffer), i, r->srcOffset, r->dstOffset, r->size);
+      }
    VKR_CMD_CALL(CmdCopyBuffer, args, args->srcBuffer, args->dstBuffer, args->regionCount,
                 args->pRegions);
 }
@@ -297,6 +320,17 @@ static void
 vkr_dispatch_vkCmdCopyBuffer2(UNUSED struct vn_dispatch_context *dispatch,
                               struct vn_command_vkCmdCopyBuffer2 *args)
 {
+   if (VKR_DEBUG(FAULT)) {
+      const VkCopyBufferInfo2 *info = args->pCopyBufferInfo;
+      for (uint32_t i = 0; i < info->regionCount; i++) {
+         const VkBufferCopy2 *r = &info->pRegions[i];
+         VKR_FAULT_TRACE(dispatch->data, "copy_buffer2 cmd=%" PRIu64 " src=%" PRIu64
+                         " dst=%" PRIu64 " index=%u src_offset=%" PRIu64
+                         " dst_offset=%" PRIu64 " size=%" PRIu64,
+                         VKR_FAULT_ID(args->commandBuffer), VKR_FAULT_ID(info->srcBuffer),
+                         VKR_FAULT_ID(info->dstBuffer), i, r->srcOffset, r->dstOffset, r->size);
+      }
+   }
    VKR_CMD_CALL(CmdCopyBuffer2, args, args->pCopyBufferInfo);
 }
 
@@ -304,6 +338,11 @@ static void
 vkr_dispatch_vkCmdCopyImage(UNUSED struct vn_dispatch_context *dispatch,
                             struct vn_command_vkCmdCopyImage *args)
 {
+   VKR_FAULT_TRACE(dispatch->data, "copy_image cmd=%" PRIu64 " src=%" PRIu64
+                   " dst=%" PRIu64 " layouts=%u,%u regions=%u",
+                   VKR_FAULT_ID(args->commandBuffer), VKR_FAULT_ID(args->srcImage),
+                   VKR_FAULT_ID(args->dstImage), args->srcImageLayout,
+                   args->dstImageLayout, args->regionCount);
    VKR_CMD_CALL(CmdCopyImage, args, args->srcImage, args->srcImageLayout, args->dstImage,
                 args->dstImageLayout, args->regionCount, args->pRegions);
 }
@@ -312,6 +351,11 @@ static void
 vkr_dispatch_vkCmdCopyImage2(UNUSED struct vn_dispatch_context *dispatch,
                              struct vn_command_vkCmdCopyImage2 *args)
 {
+   VKR_FAULT_TRACE(dispatch->data, "copy_image2 cmd=%" PRIu64 " src=%" PRIu64
+                   " dst=%" PRIu64 " layouts=%u,%u regions=%u",
+                   VKR_FAULT_ID(args->commandBuffer), VKR_FAULT_ID(args->pCopyImageInfo->srcImage),
+                   VKR_FAULT_ID(args->pCopyImageInfo->dstImage), args->pCopyImageInfo->srcImageLayout,
+                   args->pCopyImageInfo->dstImageLayout, args->pCopyImageInfo->regionCount);
    VKR_CMD_CALL(CmdCopyImage2, args, args->pCopyImageInfo);
 }
 
@@ -334,6 +378,23 @@ static void
 vkr_dispatch_vkCmdCopyBufferToImage(UNUSED struct vn_dispatch_context *dispatch,
                                     struct vn_command_vkCmdCopyBufferToImage *args)
 {
+   VKR_FAULT_TRACE(dispatch->data, "copy_buffer_image cmd=%" PRIu64 " src=%" PRIu64
+                   " dst=%" PRIu64 " layout=%u regions=%u", VKR_FAULT_ID(args->commandBuffer),
+                   VKR_FAULT_ID(args->srcBuffer), VKR_FAULT_ID(args->dstImage),
+                   args->dstImageLayout, args->regionCount);
+   if (VKR_DEBUG(FAULT))
+      for (uint32_t i = 0; i < args->regionCount; i++) {
+         const VkBufferImageCopy *r = &args->pRegions[i];
+         VKR_FAULT_TRACE(dispatch->data, "copy_buffer_image_region cmd=%" PRIu64
+                         " index=%u offset=%" PRIu64 " row=%u height=%u"
+                         " extent=%ux%ux%u image_offset=%d,%d,%d aspect=0x%x mip=%u layer=%u count=%u",
+                         VKR_FAULT_ID(args->commandBuffer), i, r->bufferOffset,
+                         r->bufferRowLength, r->bufferImageHeight,
+                         r->imageExtent.width, r->imageExtent.height, r->imageExtent.depth,
+                         r->imageOffset.x, r->imageOffset.y, r->imageOffset.z,
+                         r->imageSubresource.aspectMask, r->imageSubresource.mipLevel,
+                         r->imageSubresource.baseArrayLayer, r->imageSubresource.layerCount);
+      }
    VKR_CMD_CALL(CmdCopyBufferToImage, args, args->srcBuffer, args->dstImage,
                 args->dstImageLayout, args->regionCount, args->pRegions);
 }
@@ -342,6 +403,22 @@ static void
 vkr_dispatch_vkCmdCopyBufferToImage2(UNUSED struct vn_dispatch_context *dispatch,
                                      struct vn_command_vkCmdCopyBufferToImage2 *args)
 {
+   VKR_FAULT_TRACE(dispatch->data, "copy_buffer_image2 cmd=%" PRIu64 " src=%" PRIu64
+                   " dst=%" PRIu64 " layout=%u regions=%u", VKR_FAULT_ID(args->commandBuffer),
+                   VKR_FAULT_ID(args->pCopyBufferToImageInfo->srcBuffer),
+                   VKR_FAULT_ID(args->pCopyBufferToImageInfo->dstImage),
+                   args->pCopyBufferToImageInfo->dstImageLayout, args->pCopyBufferToImageInfo->regionCount);
+   if (VKR_DEBUG(FAULT))
+      for (uint32_t i = 0; i < args->pCopyBufferToImageInfo->regionCount; i++) {
+         const VkBufferImageCopy2 *r = &args->pCopyBufferToImageInfo->pRegions[i];
+         VKR_FAULT_TRACE(dispatch->data, "copy_region index=%u offset=%" PRIu64
+                         " row=%u height=%u extent=%ux%ux%u image_offset=%d,%d,%d mip=%u layer=%u count=%u",
+                         i, r->bufferOffset, r->bufferRowLength, r->bufferImageHeight,
+                         r->imageExtent.width, r->imageExtent.height, r->imageExtent.depth,
+                         r->imageOffset.x, r->imageOffset.y, r->imageOffset.z,
+                         r->imageSubresource.mipLevel, r->imageSubresource.baseArrayLayer,
+                         r->imageSubresource.layerCount);
+      }
    VKR_CMD_CALL(CmdCopyBufferToImage2, args, args->pCopyBufferToImageInfo);
 }
 
@@ -349,6 +426,10 @@ static void
 vkr_dispatch_vkCmdCopyImageToBuffer(UNUSED struct vn_dispatch_context *dispatch,
                                     struct vn_command_vkCmdCopyImageToBuffer *args)
 {
+   VKR_FAULT_TRACE(dispatch->data, "copy_image_buffer cmd=%" PRIu64 " src=%" PRIu64
+                   " dst=%" PRIu64 " layout=%u regions=%u", VKR_FAULT_ID(args->commandBuffer),
+                   VKR_FAULT_ID(args->srcImage), VKR_FAULT_ID(args->dstBuffer),
+                   args->srcImageLayout, args->regionCount);
    VKR_CMD_CALL(CmdCopyImageToBuffer, args, args->srcImage, args->srcImageLayout,
                 args->dstBuffer, args->regionCount, args->pRegions);
 }
@@ -357,6 +438,11 @@ static void
 vkr_dispatch_vkCmdCopyImageToBuffer2(UNUSED struct vn_dispatch_context *dispatch,
                                      struct vn_command_vkCmdCopyImageToBuffer2 *args)
 {
+   VKR_FAULT_TRACE(dispatch->data, "copy_image_buffer2 cmd=%" PRIu64 " src=%" PRIu64
+                   " dst=%" PRIu64 " layout=%u regions=%u", VKR_FAULT_ID(args->commandBuffer),
+                   VKR_FAULT_ID(args->pCopyImageToBufferInfo->srcImage),
+                   VKR_FAULT_ID(args->pCopyImageToBufferInfo->dstBuffer),
+                   args->pCopyImageToBufferInfo->srcImageLayout, args->pCopyImageToBufferInfo->regionCount);
    VKR_CMD_CALL(CmdCopyImageToBuffer2, args, args->pCopyImageToBufferInfo);
 }
 
@@ -372,6 +458,10 @@ static void
 vkr_dispatch_vkCmdFillBuffer(UNUSED struct vn_dispatch_context *dispatch,
                              struct vn_command_vkCmdFillBuffer *args)
 {
+   VKR_FAULT_TRACE(dispatch->data, "fill_buffer cmd=%" PRIu64 " dst=%" PRIu64
+                   " offset=%" PRIu64 " size=%" PRIu64 " data=0x%x",
+                   VKR_FAULT_ID(args->commandBuffer), VKR_FAULT_ID(args->dstBuffer),
+                   args->dstOffset, args->size, args->data);
    VKR_CMD_CALL(CmdFillBuffer, args, args->dstBuffer, args->dstOffset, args->size,
                 args->data);
 }
@@ -444,6 +534,15 @@ static void
 vkr_dispatch_vkCmdPipelineBarrier(UNUSED struct vn_dispatch_context *dispatch,
                                   struct vn_command_vkCmdPipelineBarrier *args)
 {
+   if (VKR_DEBUG(FAULT))
+      for (uint32_t i = 0; i < args->imageMemoryBarrierCount; i++) {
+         const VkImageMemoryBarrier *b = &args->pImageMemoryBarriers[i];
+         VKR_FAULT_TRACE(dispatch->data, "image_barrier cmd=%" PRIu64 " image=%" PRIu64
+                         " layouts=%u,%u families=%u,%u access=0x%x,0x%x",
+                         VKR_FAULT_ID(args->commandBuffer), VKR_FAULT_ID(b->image),
+                         b->oldLayout, b->newLayout, b->srcQueueFamilyIndex,
+                         b->dstQueueFamilyIndex, b->srcAccessMask, b->dstAccessMask);
+      }
    VKR_CMD_CALL(CmdPipelineBarrier, args, args->srcStageMask, args->dstStageMask,
                 args->dependencyFlags, args->memoryBarrierCount, args->pMemoryBarriers,
                 args->bufferMemoryBarrierCount, args->pBufferMemoryBarriers,
@@ -522,6 +621,12 @@ static void
 vkr_dispatch_vkCmdExecuteCommands(UNUSED struct vn_dispatch_context *dispatch,
                                   struct vn_command_vkCmdExecuteCommands *args)
 {
+   if (VKR_DEBUG(FAULT))
+      for (uint32_t i = 0; i < args->commandBufferCount; i++)
+         VKR_FAULT_TRACE(dispatch->data, "execute_secondary cmd=%" PRIu64
+                         " index=%u secondary=%" PRIu64,
+                         VKR_FAULT_ID(args->commandBuffer), i,
+                         VKR_FAULT_ID(args->pCommandBuffers[i]));
    VKR_CMD_CALL(CmdExecuteCommands, args, args->commandBufferCount,
                 args->pCommandBuffers);
 }
@@ -811,6 +916,28 @@ static void
 vkr_dispatch_vkCmdPipelineBarrier2(UNUSED struct vn_dispatch_context *ctx,
                                    struct vn_command_vkCmdPipelineBarrier2 *args)
 {
+   if (VKR_DEBUG(FAULT)) {
+      const VkDependencyInfo *d = args->pDependencyInfo;
+      for (uint32_t i = 0; i < d->imageMemoryBarrierCount; i++) {
+         const VkImageMemoryBarrier2 *b = &d->pImageMemoryBarriers[i];
+         VKR_FAULT_TRACE(ctx->data, "image_barrier2 cmd=%" PRIu64 " image=%" PRIu64
+                         " layouts=%u,%u families=%u,%u stages=0x%" PRIx64 ",0x%" PRIx64
+                         " access=0x%" PRIx64 ",0x%" PRIx64,
+                         VKR_FAULT_ID(args->commandBuffer), VKR_FAULT_ID(b->image),
+                         b->oldLayout, b->newLayout, b->srcQueueFamilyIndex,
+                         b->dstQueueFamilyIndex, b->srcStageMask, b->dstStageMask,
+                         b->srcAccessMask, b->dstAccessMask);
+      }
+      for (uint32_t i = 0; i < d->bufferMemoryBarrierCount; i++) {
+         const VkBufferMemoryBarrier2 *b = &d->pBufferMemoryBarriers[i];
+         VKR_FAULT_TRACE(ctx->data, "buffer_barrier2 cmd=%" PRIu64 " buffer=%" PRIu64
+                         " offset=%" PRIu64 " size=%" PRIu64 " families=%u,%u"
+                         " access=0x%" PRIx64 ",0x%" PRIx64,
+                         VKR_FAULT_ID(args->commandBuffer), VKR_FAULT_ID(b->buffer),
+                         b->offset, b->size, b->srcQueueFamilyIndex, b->dstQueueFamilyIndex,
+                         b->srcAccessMask, b->dstAccessMask);
+      }
+   }
    VKR_CMD_CALL(CmdPipelineBarrier2, args, args->pDependencyInfo);
 }
 

@@ -7,6 +7,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <time.h>
 
 #include "util/u_debug.h"
 #include "vn_protocol_renderer_info.h"
@@ -231,6 +232,7 @@ static const struct debug_named_value vkr_debug_options[] = {
    { "validate", VKR_DEBUG_VALIDATE, "Force enabling the validation layer" },
    { "udmabuf", VKR_DEBUG_UDMABUF, "Force udmabuf for host visible memory" },
    { "gbm", VKR_DEBUG_GBM, "Force gbm for host visible memory" },
+   { "fault", VKR_DEBUG_FAULT, "Bounded resource/copy trace and decoded shader dumps" },
    DEBUG_NAMED_VALUE_END
 };
 
@@ -252,6 +254,69 @@ vkr_log(const char *fmt, ...)
    va_start(va, fmt);
    virgl_prefixed_logv("vkr", VIRGL_LOG_LEVEL_INFO, fmt, va);
    va_end(va);
+}
+
+/* Diagnostic only: these records authenticate CPU dispatch order, never GPU
+ * completion. Bounds are per context; reaching either bound is explicit. */
+void
+vkr_fault_trace(struct vkr_context *ctx, const char *fmt, ...)
+{
+   if (!VKR_DEBUG(FAULT))
+      return;
+   const uint64_t seq = atomic_fetch_add(&ctx->fault_trace_seq, 1);
+   if (seq > 200000)
+      return;
+   struct timespec ts = { 0 };
+   timespec_get(&ts, TIME_UTC);
+   char message[1536];
+   va_list ap;
+   va_start(ap, fmt);
+   const int size = vsnprintf(message, sizeof(message), fmt, ap);
+   va_end(ap);
+   vkr_log("fault ctx=%u seq=%" PRIu64 " utc=%" PRIu64 ".%09ld %s%s",
+           ctx->ctx_id, seq, (uint64_t)ts.tv_sec, ts.tv_nsec,
+           seq == 200000 ? "TRACE_LIMIT_REACHED" : message,
+           size < 0 || size >= (int)sizeof(message) ? " [TRUNCATED]" : "");
+}
+
+void
+vkr_fault_trace_shader(struct vkr_context *ctx, vkr_object_id id,
+                       const VkShaderModuleCreateInfo *info)
+{
+   if (!VKR_DEBUG(FAULT))
+      return;
+   const uint64_t limit = 128ull * 1024 * 1024;
+   const uint64_t used = atomic_fetch_add(&ctx->fault_trace_shader_bytes, info->codeSize);
+   if (info->codeSize > limit || used > limit - info->codeSize) {
+      VKR_FAULT_TRACE(ctx, "shader=%" PRIu64 " bytes=%zu DUMP_LIMIT_REACHED", id, info->codeSize);
+      return;
+   }
+   const char *dir = getenv("VKR_FAULT_TRACE_DIR");
+   if (!dir || !dir[0]) {
+      VKR_FAULT_TRACE(ctx, "shader=%" PRIu64 " bytes=%zu DUMP_DIR_UNSET", id, info->codeSize);
+      return;
+   }
+   char path[1024];
+   const uint64_t seq = atomic_fetch_add(&ctx->fault_trace_seq, 1);
+   const int n = snprintf(path, sizeof(path), "%s/shader-%ld-%u-%" PRIu64 "-%" PRIu64 ".spv",
+                          dir, (long)getpid(), ctx->ctx_id, seq, id);
+   if (n < 0 || n >= (int)sizeof(path)) {
+      VKR_FAULT_TRACE(ctx, "shader=%" PRIu64 " DUMP_PATH_TOO_LONG", id);
+      return;
+   }
+   /* Exclusive create preserves previous evidence, including after PID reuse.
+    * This is the decoded pCode immediately before native vkCreateShaderModule. */
+   FILE *file = fopen(path, "wx");
+   if (!file) {
+      VKR_FAULT_TRACE(ctx, "shader=%" PRIu64 " DUMP_OPEN_FAILED errno=%d", id, errno);
+      return;
+   }
+   bool ok = fwrite(info->pCode, 1, info->codeSize, file) == info->codeSize;
+   ok = fflush(file) == 0 && ok;
+   ok = fsync(fileno(file)) == 0 && ok;
+   ok = fclose(file) == 0 && ok;
+   VKR_FAULT_TRACE(ctx, "shader=%" PRIu64 " bytes=%zu dump=%s status=%s",
+                   id, info->codeSize, path, ok ? "complete" : "FAILED");
 }
 
 void

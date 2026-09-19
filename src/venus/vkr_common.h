@@ -40,6 +40,9 @@
 #define VKR_MAX_API_VERSION VK_API_VERSION_1_4
 
 #define VKR_DEBUG(category) (unlikely(vkr_debug_flags & VKR_DEBUG_##category))
+#define VKR_FAULT_TRACE(ctx, ...) do { \
+   if (VKR_DEBUG(FAULT)) vkr_fault_trace(ctx, __VA_ARGS__); \
+} while (0)
 
 /* define a type-safe cast function */
 #define VKR_DEFINE_OBJECT_CAST(vkr_type, vk_enum, vk_type)                               \
@@ -118,6 +121,7 @@ enum vkr_debug_flags {
    VKR_DEBUG_VALIDATE = 1 << 0,
    VKR_DEBUG_UDMABUF = 1 << 1,
    VKR_DEBUG_GBM = 1 << 2,
+   VKR_DEBUG_FAULT = 1 << 3,
 };
 
 /* base class for all objects */
@@ -181,6 +185,15 @@ struct vkr_region {
    size_t end;
 };
 
+/* Decoded handles refer to wrappers whose first member is vkr_object. Only
+ * use before vn_replace_* changes a command's handles to native Vulkan. */
+static inline uint64_t
+vkr_fault_object_id(const void *handle)
+{
+   return handle ? ((const struct vkr_object *)handle)->id : 0;
+}
+#define VKR_FAULT_ID(handle) vkr_fault_object_id((const void *)(uintptr_t)(handle))
+
 extern uint32_t vkr_debug_flags;
 
 void
@@ -188,6 +201,14 @@ vkr_debug_init(void);
 
 void
 vkr_log(const char *fmt, ...);
+
+void
+vkr_fault_trace(struct vkr_context *ctx, const char *fmt, ...)
+   __attribute__((format(printf, 2, 3)));
+
+void
+vkr_fault_trace_shader(struct vkr_context *ctx, vkr_object_id id,
+                       const VkShaderModuleCreateInfo *info);
 
 static inline uint32_t
 vkr_api_version_cap_minor(uint32_t version, uint32_t cap)

@@ -37,13 +37,30 @@ vkr_dispatch_vkCreateBuffer(struct vn_dispatch_context *dispatch,
     * vkr_physical_device_init_memory_properties as well.
     */
 
-   vkr_buffer_create_and_add(dispatch->data, args);
+   struct vkr_buffer *buffer = vkr_buffer_create_and_add(dispatch->data, args);
+   if (VKR_DEBUG(FAULT)) {
+      const VkBufferCreateInfo *ci = args->pCreateInfo;
+      const VkExternalMemoryBufferCreateInfo *ext = vkr_find_struct(
+         ci->pNext, VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO);
+      const VkBufferUsageFlags2CreateInfo *usage = vkr_find_struct(
+         ci->pNext, VK_STRUCTURE_TYPE_BUFFER_USAGE_FLAGS_2_CREATE_INFO);
+      VKR_FAULT_TRACE(dispatch->data, "create_buffer id=%" PRIu64 " host=0x%" PRIx64
+                      " result=%d size=%" PRIu64 " flags=0x%x usage=0x%" PRIx64
+                      " sharing=%u external=0x%x", buffer ? buffer->base.id : 0,
+                      buffer ? buffer->base.handle.u64 : 0, args->ret, ci->size,
+                      ci->flags, (uint64_t)(usage ? usage->usage : ci->usage),
+                      ci->sharingMode, ext ? ext->handleTypes : 0);
+   }
 }
 
 static void
 vkr_dispatch_vkDestroyBuffer(struct vn_dispatch_context *dispatch,
                              struct vn_command_vkDestroyBuffer *args)
 {
+   struct vkr_buffer *buffer = vkr_buffer_from_handle(args->buffer);
+   if (buffer)
+      VKR_FAULT_TRACE(dispatch->data, "destroy_buffer id=%" PRIu64 " host=0x%" PRIx64,
+                      buffer->base.id, buffer->base.handle.u64);
    vkr_buffer_destroy_and_remove(dispatch->data, args);
 }
 
@@ -79,8 +96,12 @@ vkr_dispatch_vkBindBufferMemory(UNUSED struct vn_dispatch_context *dispatch,
    struct vn_device_proc_table *vk = &dev->proc_table;
 
    vn_replace_vkBindBufferMemory_args_handle(args);
+   VKR_FAULT_TRACE(dispatch->data, "bind_buffer buffer=0x%" PRIx64 " memory=0x%" PRIx64
+                   " offset=%" PRIu64, (uint64_t)(uintptr_t)args->buffer,
+                   (uint64_t)(uintptr_t)args->memory, args->memoryOffset);
    args->ret =
       vk->BindBufferMemory(args->device, args->buffer, args->memory, args->memoryOffset);
+   VKR_FAULT_TRACE(dispatch->data, "bind_buffer_result result=%d", args->ret);
 }
 
 static void
@@ -91,7 +112,13 @@ vkr_dispatch_vkBindBufferMemory2(UNUSED struct vn_dispatch_context *dispatch,
    struct vn_device_proc_table *vk = &dev->proc_table;
 
    vn_replace_vkBindBufferMemory2_args_handle(args);
+   if (VKR_DEBUG(FAULT))
+      for (uint32_t i = 0; i < args->bindInfoCount; i++)
+         VKR_FAULT_TRACE(dispatch->data, "bind_buffer2 buffer=0x%" PRIx64 " memory=0x%" PRIx64
+                         " offset=%" PRIu64, (uint64_t)(uintptr_t)args->pBindInfos[i].buffer,
+                         (uint64_t)(uintptr_t)args->pBindInfos[i].memory, args->pBindInfos[i].memoryOffset);
    args->ret = vk->BindBufferMemory2(args->device, args->bindInfoCount, args->pBindInfos);
+   VKR_FAULT_TRACE(dispatch->data, "bind_buffer2_result result=%d", args->ret);
 }
 
 static void
@@ -113,8 +140,11 @@ vkr_dispatch_vkGetBufferDeviceAddress(UNUSED struct vn_dispatch_context *dispatc
    struct vkr_device *dev = vkr_device_from_handle(args->device);
    struct vn_device_proc_table *vk = &dev->proc_table;
 
+   const vkr_object_id buffer_id = VKR_FAULT_ID(args->pInfo->buffer);
    vn_replace_vkGetBufferDeviceAddress_args_handle(args);
    args->ret = vk->GetBufferDeviceAddress(args->device, args->pInfo);
+   VKR_FAULT_TRACE(dispatch->data, "buffer_address buffer=%" PRIu64 " address=0x%" PRIx64,
+                   buffer_id, args->ret);
 }
 
 static void

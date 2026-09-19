@@ -89,6 +89,8 @@ struct vkr_context {
    struct hash_table *resource_table;
 
    bool cs_fatal_error;
+   atomic_uint_fast64_t fault_trace_seq;
+   atomic_uint_fast64_t fault_trace_shader_bytes;
    struct vkr_cs_encoder encoder;
    struct vkr_cs_decoder decoder;
    struct vn_dispatch_context dispatch;

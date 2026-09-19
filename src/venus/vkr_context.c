@@ -357,6 +357,10 @@ vkr_context_create_resource_from_device_memory(struct vkr_context *ctx,
 
    *out_blob = blob;
 
+   VKR_FAULT_TRACE(ctx, "export resid=%u memory=%" PRIu64 " host=0x%" PRIx64
+                   " size=%" PRIu64 " fd_type=%u", res_id, mem->base.id,
+                   mem->base.handle.u64, blob_size, blob.type);
+
    return true;
 }
 
@@ -689,6 +693,8 @@ vkr_context_create(uint32_t ctx_id,
    }
 
    ctx->ctx_id = ctx_id;
+   atomic_init(&ctx->fault_trace_seq, 0);
+   atomic_init(&ctx->fault_trace_shader_bytes, 0);
    ctx->retire_fence = cb;
    ctx->debug_name = malloc(debug_len + 1);
    if (!ctx->debug_name)

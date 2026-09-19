@@ -82,6 +82,8 @@ vkr_queue_sync_retire(struct vkr_queue *queue, struct vkr_queue_sync *sync, VkRe
     * completion; leave the guest fence pending until its error/timeout path.
     * A separate error-bearing transport callback remains necessary for loss.
     */
+   VKR_FAULT_TRACE(queue->context, "marker_result fence=%" PRIu64 " ring=%u result=%d",
+                   sync->fence_id, sync->ring_idx, result);
    if (result == VK_SUCCESS) {
       queue->context->retire_fence(queue->context->ctx_id, sync->ring_idx, sync->fence_id);
       vkr_device_free_queue_sync(queue->device, sync);
@@ -399,11 +401,36 @@ vkr_dispatch_vkQueueSubmit(UNUSED struct vn_dispatch_context *dispatch,
    struct vkr_queue *queue = vkr_queue_from_handle(args->queue);
    struct vn_device_proc_table *vk = &queue->device->proc_table;
 
+   VKR_FAULT_TRACE(dispatch->data, "submit queue=%" PRIu64 " batches=%u fence=%" PRIu64,
+                   queue->base.id, args->submitCount, VKR_FAULT_ID(args->fence));
+   if (VKR_DEBUG(FAULT))
+      for (uint32_t i = 0; i < args->submitCount; i++) {
+         const VkSubmitInfo *s = &args->pSubmits[i];
+         const VkTimelineSemaphoreSubmitInfo *timeline = vkr_find_struct(
+            s->pNext, VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO);
+         for (uint32_t j = 0; j < s->waitSemaphoreCount; j++)
+            VKR_FAULT_TRACE(dispatch->data, "submit_wait batch=%u sem=%" PRIu64
+                            " value=%" PRIu64 " stages=0x%x",
+                            i, VKR_FAULT_ID(s->pWaitSemaphores[j]),
+                            timeline && j < timeline->waitSemaphoreValueCount
+                               ? timeline->pWaitSemaphoreValues[j] : 0,
+                            s->pWaitDstStageMask[j]);
+         for (uint32_t j = 0; j < s->commandBufferCount; j++)
+            VKR_FAULT_TRACE(dispatch->data, "submit_cmd batch=%u cmd=%" PRIu64,
+                            i, VKR_FAULT_ID(s->pCommandBuffers[j]));
+         for (uint32_t j = 0; j < s->signalSemaphoreCount; j++)
+            VKR_FAULT_TRACE(dispatch->data, "submit_signal batch=%u sem=%" PRIu64
+                            " value=%" PRIu64,
+                            i, VKR_FAULT_ID(s->pSignalSemaphores[j]),
+                            timeline && j < timeline->signalSemaphoreValueCount
+                               ? timeline->pSignalSemaphoreValues[j] : 0);
+      }
    vn_replace_vkQueueSubmit_args_handle(args);
 
    mtx_lock(&queue->vk_mutex);
    args->ret =
       vk->QueueSubmit(args->queue, args->submitCount, args->pSubmits, args->fence);
+   VKR_FAULT_TRACE(dispatch->data, "submit_result queue=%" PRIu64 " result=%d", queue->base.id, args->ret);
    mtx_unlock(&queue->vk_mutex);
 }
 
@@ -440,11 +467,35 @@ vkr_dispatch_vkQueueSubmit2(UNUSED struct vn_dispatch_context *dispatch,
    struct vkr_queue *queue = vkr_queue_from_handle(args->queue);
    struct vn_device_proc_table *vk = &queue->device->proc_table;
 
+   VKR_FAULT_TRACE(dispatch->data, "submit2 queue=%" PRIu64 " batches=%u fence=%" PRIu64,
+                   queue->base.id, args->submitCount, VKR_FAULT_ID(args->fence));
+   if (VKR_DEBUG(FAULT))
+      for (uint32_t i = 0; i < args->submitCount; i++) {
+         const VkSubmitInfo2 *s = &args->pSubmits[i];
+         for (uint32_t j = 0; j < s->waitSemaphoreInfoCount; j++) {
+            const VkSemaphoreSubmitInfo *info = &s->pWaitSemaphoreInfos[j];
+            VKR_FAULT_TRACE(dispatch->data, "submit2_wait batch=%u sem=%" PRIu64
+                            " value=%" PRIu64 " stages=0x%" PRIx64 " device=%u",
+                            i, VKR_FAULT_ID(info->semaphore), info->value,
+                            info->stageMask, info->deviceIndex);
+         }
+         for (uint32_t j = 0; j < s->commandBufferInfoCount; j++)
+            VKR_FAULT_TRACE(dispatch->data, "submit2_cmd batch=%u cmd=%" PRIu64,
+                            i, VKR_FAULT_ID(s->pCommandBufferInfos[j].commandBuffer));
+         for (uint32_t j = 0; j < s->signalSemaphoreInfoCount; j++) {
+            const VkSemaphoreSubmitInfo *info = &s->pSignalSemaphoreInfos[j];
+            VKR_FAULT_TRACE(dispatch->data, "submit2_signal batch=%u sem=%" PRIu64
+                            " value=%" PRIu64 " stages=0x%" PRIx64 " device=%u",
+                            i, VKR_FAULT_ID(info->semaphore), info->value,
+                            info->stageMask, info->deviceIndex);
+         }
+      }
    vn_replace_vkQueueSubmit2_args_handle(args);
 
    mtx_lock(&queue->vk_mutex);
    args->ret =
       vk->QueueSubmit2(args->queue, args->submitCount, args->pSubmits, args->fence);
+   VKR_FAULT_TRACE(dispatch->data, "submit2_result queue=%" PRIu64 " result=%d", queue->base.id, args->ret);
    mtx_unlock(&queue->vk_mutex);
 }
 
@@ -493,9 +544,15 @@ vkr_dispatch_vkWaitForFences(UNUSED struct vn_dispatch_context *dispatch,
    struct vkr_device *dev = vkr_device_from_handle(args->device);
    struct vn_device_proc_table *vk = &dev->proc_table;
 
+   if (VKR_DEBUG(FAULT))
+      for (uint32_t i = 0; i < args->fenceCount; i++)
+         VKR_FAULT_TRACE(dispatch->data, "wait_fence index=%u fence=%" PRIu64
+                         " all=%u timeout=%" PRIu64,
+                         i, VKR_FAULT_ID(args->pFences[i]), args->waitAll, args->timeout);
    vn_replace_vkWaitForFences_args_handle(args);
    args->ret = vk->WaitForFences(args->device, args->fenceCount, args->pFences,
                                  args->waitAll, args->timeout);
+   VKR_FAULT_TRACE(dispatch->data, "wait_fences_result result=%d", args->ret);
 }
 
 static void

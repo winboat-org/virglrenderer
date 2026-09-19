@@ -119,8 +119,20 @@ if with_fuzzer
 endif
 
 if with_venus
+   venus_memory_export_test = executable(
+      'test_venus_memory_export', 'test_venus_memory_export.c',
+      dependencies: [libvirgl_dep, virgl_depends, drm_uapi_dep])
+   test('venus_memory_export', venus_memory_export_test)
    venus_queue_test = executable(
       'test_venus_queue_sync', 'test_venus_queue_sync.c',
       dependencies: [libvirgl_dep, virgl_depends, drm_uapi_dep])
    test('venus_queue_sync', venus_queue_test)
+   venus_fault_test = executable(
+      'test_venus_fault_trace', 'test_venus_fault_trace.c',
+      dependencies: [libvirgl_dep, virgl_depends, drm_uapi_dep])
+   test('venus_fault_trace', venus_fault_test)
+   venus_fault_dispatch_test = executable(
+      'test_venus_fault_dispatch', 'test_venus_fault_dispatch.c',
+      dependencies: [libvirgl_dep, virgl_depends, drm_uapi_dep])
+   test('venus_fault_dispatch', venus_fault_dispatch_test)
 endif

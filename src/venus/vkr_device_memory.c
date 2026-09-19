@@ -10,6 +10,8 @@
 #include "vn_protocol_renderer_transport.h"
 
 #include "vkr_device_memory_gen.h"
+#include "vkr_buffer.h"
+#include "vkr_image.h"
 #include "vkr_metal_helpers.h"
 #include "vkr_physical_device.h"
 
@@ -412,7 +414,19 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
    VkExportMemoryAllocateInfo local_export_info;
    VkImportMemoryMetalHandleInfoEXT local_metal_import;
 
-   if ((property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) && !res_info) {
+   /* An explicit export already defines the allocation's handle contract.
+    * Adding our default DMA_BUF to OPAQUE_FD is invalid when the queried
+    * compatibleHandleTypes excludes that combination (NVIDIA 615.71.09).
+    * Only synthesize an export for ordinary allocations. Keep the existing
+    * DMA_BUF import fallback for a client requesting DMA_BUF on a host that
+    * cannot export it natively.
+    */
+   const bool needs_dma_buf_import =
+      might_export &&
+      export_info->handleTypes == VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT &&
+      !physical_dev->is_dma_buf_fd_export_supported;
+   if ((property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) && !res_info &&
+       (!might_export || needs_dma_buf_import)) {
       /* An implementation can support dma_buf import along with opaque fd export/import.
        * If the client driver is using external memory and requesting dma_buf, without
        * dma_buf fd export support, we must use gbm bo import path instead of forcing
@@ -529,7 +543,21 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
       return;
    }
 
+   if (VKR_DEBUG(FAULT)) {
+      const VkMemoryDedicatedAllocateInfo *dedicated = vkr_find_struct(
+         alloc_info->pNext, VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO);
+      const struct vkr_image *image = dedicated ? vkr_image_from_handle(dedicated->image) : NULL;
+      const struct vkr_buffer *buffer = dedicated ? vkr_buffer_from_handle(dedicated->buffer) : NULL;
+      VKR_FAULT_TRACE(ctx, "allocate_memory size=%" PRIu64 " type=%u import_resid=%u"
+                      " import_type=0x%x export_types=0x%x dedicated_image=%" PRIu64
+                      " dedicated_buffer=%" PRIu64, alloc_info->allocationSize,
+                      mem_type_index, res_info ? res_info->resourceId : 0,
+                      local_import_info.handleType, export_info ? export_info->handleTypes : 0,
+                      image ? image->base.id : 0, buffer ? buffer->base.id : 0);
+   }
    struct vkr_device_memory *mem = vkr_device_memory_create_and_add(ctx, args);
+   VKR_FAULT_TRACE(ctx, "allocate_memory_result id=%" PRIu64 " host=0x%" PRIx64 " result=%d",
+                   mem ? mem->base.id : 0, mem ? mem->base.handle.u64 : 0, args->ret);
    if (!mem) {
       vkr_device_memory_budget_release(budget_charge);
       if (local_import_info.fd >= 0)
@@ -562,6 +590,9 @@ vkr_dispatch_vkFreeMemory(struct vn_dispatch_context *dispatch,
    struct vkr_device_memory *mem = vkr_device_memory_from_handle(args->memory);
    if (!mem)
       return;
+
+   VKR_FAULT_TRACE(dispatch->data, "free_memory id=%" PRIu64 " host=0x%" PRIx64,
+                   mem->base.id, mem->base.handle.u64);
 
    /* Keep the charge until the host vkFreeMemory has completed.  The generated
     * destroy helper frees the vkr_device_memory wrapper, so retain the value

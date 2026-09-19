@@ -21,6 +21,9 @@ struct vkr_command_buffer {
    struct vkr_object base;
 
    struct vkr_device *device;
+   /* Borrowed from the context which owns this command buffer. Used only for
+    * bounded fault diagnostics; command buffers are destroyed before it. */
+   struct vkr_context *context;
 };
 VKR_DEFINE_OBJECT_CAST(command_buffer, VK_OBJECT_TYPE_COMMAND_BUFFER, VkCommandBuffer)
 

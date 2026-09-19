@@ -41,7 +41,14 @@ vkr_dispatch_vkCreateShaderModule(struct vn_dispatch_context *dispatch,
       return;
    }
 
-   vkr_shader_module_create_and_add(dispatch->data, args);
+   if (VKR_DEBUG(FAULT)) {
+      const vkr_object_id id = vkr_cs_handle_load_id(
+         (const void **)args->pShaderModule, VK_OBJECT_TYPE_SHADER_MODULE);
+      vkr_fault_trace_shader(ctx, id, args->pCreateInfo);
+   }
+   struct vkr_shader_module *shader = vkr_shader_module_create_and_add(ctx, args);
+   VKR_FAULT_TRACE(ctx, "create_shader id=%" PRIu64 " host=0x%" PRIx64 " result=%d",
+                   shader ? shader->base.id : 0, shader ? shader->base.handle.u64 : 0, args->ret);
 }
 
 static void

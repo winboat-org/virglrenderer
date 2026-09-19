@@ -31,13 +31,37 @@ vkr_dispatch_vkCreateImage(struct vn_dispatch_context *dispatch,
     * situation because the app does not consider the memory external.
     */
 
-   vkr_image_create_and_add(dispatch->data, args);
+   struct vkr_image *image = vkr_image_create_and_add(dispatch->data, args);
+   if (VKR_DEBUG(FAULT)) {
+      const VkImageCreateInfo *ci = args->pCreateInfo;
+      const VkExternalMemoryImageCreateInfo *ext = vkr_find_struct(
+         ci->pNext, VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO);
+      VKR_FAULT_TRACE(dispatch->data, "create_image id=%" PRIu64 " host=0x%" PRIx64
+                      " result=%d flags=0x%x type=%u format=%u extent=%ux%ux%u"
+                      " mips=%u layers=%u samples=%u tiling=%u usage=0x%x"
+                      " sharing=%u initial=%u external=0x%x",
+                      image ? image->base.id : 0, image ? image->base.handle.u64 : 0,
+                      args->ret, ci->flags, ci->imageType, ci->format,
+                      ci->extent.width, ci->extent.height, ci->extent.depth,
+                      ci->mipLevels, ci->arrayLayers, ci->samples, ci->tiling,
+                      ci->usage, ci->sharingMode, ci->initialLayout, ext ? ext->handleTypes : 0);
+      const VkImageFormatListCreateInfo *formats = vkr_find_struct(
+         ci->pNext, VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO);
+      if (image && formats)
+         for (uint32_t i = 0; i < formats->viewFormatCount; i++)
+            VKR_FAULT_TRACE(dispatch->data, "image_format id=%" PRIu64 " index=%u format=%u",
+                            image->base.id, i, formats->pViewFormats[i]);
+   }
 }
 
 static void
 vkr_dispatch_vkDestroyImage(struct vn_dispatch_context *dispatch,
                             struct vn_command_vkDestroyImage *args)
 {
+   struct vkr_image *image = vkr_image_from_handle(args->image);
+   if (image)
+      VKR_FAULT_TRACE(dispatch->data, "destroy_image id=%" PRIu64 " host=0x%" PRIx64,
+                      image->base.id, image->base.handle.u64);
    vkr_image_destroy_and_remove(dispatch->data, args);
 }
 
@@ -101,8 +125,12 @@ vkr_dispatch_vkBindImageMemory(UNUSED struct vn_dispatch_context *dispatch,
    struct vn_device_proc_table *vk = &dev->proc_table;
 
    vn_replace_vkBindImageMemory_args_handle(args);
+   VKR_FAULT_TRACE(dispatch->data, "bind_image image=0x%" PRIx64 " memory=0x%" PRIx64
+                   " offset=%" PRIu64, (uint64_t)(uintptr_t)args->image,
+                   (uint64_t)(uintptr_t)args->memory, args->memoryOffset);
    args->ret =
       vk->BindImageMemory(args->device, args->image, args->memory, args->memoryOffset);
+   VKR_FAULT_TRACE(dispatch->data, "bind_image_result result=%d", args->ret);
 }
 
 static void
@@ -113,7 +141,13 @@ vkr_dispatch_vkBindImageMemory2(UNUSED struct vn_dispatch_context *dispatch,
    struct vn_device_proc_table *vk = &dev->proc_table;
 
    vn_replace_vkBindImageMemory2_args_handle(args);
+   if (VKR_DEBUG(FAULT))
+      for (uint32_t i = 0; i < args->bindInfoCount; i++)
+         VKR_FAULT_TRACE(dispatch->data, "bind_image2 image=0x%" PRIx64 " memory=0x%" PRIx64
+                         " offset=%" PRIu64, (uint64_t)(uintptr_t)args->pBindInfos[i].image,
+                         (uint64_t)(uintptr_t)args->pBindInfos[i].memory, args->pBindInfos[i].memoryOffset);
    args->ret = vk->BindImageMemory2(args->device, args->bindInfoCount, args->pBindInfos);
+   VKR_FAULT_TRACE(dispatch->data, "bind_image2_result result=%d", args->ret);
 }
 
 static void

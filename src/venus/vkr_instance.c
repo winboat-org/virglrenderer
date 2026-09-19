@@ -81,7 +81,10 @@ vkr_validation_callback(UNUSED VkDebugUtilsMessageSeverityFlagBitsEXT messageSev
       "VUID-VkSparseImageMemoryBind-memory-02733",
    };
    for (uint32_t i = 0; i < ARRAY_SIZE(skips); i++) {
-      if (!strcmp(pCallbackData->pMessageIdName, skips[i]))
+      /* Fault investigations must see these contract violations too. The
+       * legacy Venus host-visible-memory exceptions can otherwise hide a
+       * mismatched explicitly external image/memory pair. */
+      if (!VKR_DEBUG(FAULT) && !strcmp(pCallbackData->pMessageIdName, skips[i]))
          return false;
    }
 
