@@ -108,7 +108,8 @@ vkr_device_memory_budget_reserve(uint64_t size)
 static void
 vkr_device_memory_budget_release(uint64_t size)
 {
-   if (!size)
+   /* nothing was reserved without a limit (vkr_device_memory_budget_reserve) */
+   if (!vkr_device_memory_budget_limit || !size)
       return;
 
    uint_fast64_t used =
